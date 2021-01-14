@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 
 #include "rtTypes.h"
+#include "rtShader.h"
 
 
 
@@ -18,15 +19,16 @@ const RayTrace::ScreenDim origScreenSize = {
 	600		// Height
 };
 
-unsigned int shader_program, VAO;
+RayTrace::Shader shader_program, shader_program2;
+unsigned int VAO, VAO2;
 bool wireframe_mode = false;
 bool key_w_held = false;
 
 float vertices[] = {
-	0.5f,  0.5f, 0.0f,  
-	 0.5f, -0.5f, 0.0f, 
-	-0.5f, -0.5f, 0.0f, 
-	-0.5f,  0.5f, 0.0f  
+	1.0f,  0.5f, 0.0f,  
+	1.0f, -0.5f, 0.0f, 
+	0.0f, -0.5f, 0.0f, 
+	0.0f,  0.5f, 0.0f
 };
 
 unsigned int indices[] = {
@@ -34,13 +36,41 @@ unsigned int indices[] = {
 	1, 2, 3    // second triangle
 };
 
+float vertices2[] = {
+	 0.0f,  0.5f, 0.0f,
+	 0.0f, -0.5f, 0.0f,
+	-1.0f, -0.5f, 0.0f,
+	-1.0f,  0.5f, 0.0f
+};
+
+unsigned int indices2[] = {
+	0, 1, 3,   // first triangle
+	1, 2, 3    // second triangle
+};
+
+
+
 
 void updateScreen(GLFWwindow* window) {
 	glClearColor(0.1f, 0.2f, 0.3f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	glUseProgram(shader_program);
+	shader_program.use();
 	glBindVertexArray(VAO);
+	glDrawElements(
+		GL_TRIANGLES,
+		6,
+		GL_UNSIGNED_INT,
+		0
+	);
+
+	float timeNow = (float) glfwGetTime();
+	float timeVal = (sin(timeNow*10) / 2.0f) + 0.5f;
+	int varLoc = glGetUniformLocation(shader_program2, "our_color");
+	
+	shader_program2.use();
+	glUniform4f(varLoc, timeVal, 1.0f - timeVal, 0.0f, 1.0f);
+	glBindVertexArray(VAO2);
 	glDrawElements(
 		GL_TRIANGLES,
 		6,
@@ -50,20 +80,6 @@ void updateScreen(GLFWwindow* window) {
 
 	glfwSwapBuffers(window);
 }
-
-const char* vertexShaderSource = "#version 330 core\n"
-    "layout (location = 0) in vec3 aPos;\n"
-    "void main()\n"
-    "{\n"
-    "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-	"}\0";
-
-const char* fragmentShaderSource = "#version 330 core\n"
-    "out vec4 FragColor;\n"
-    "void main()\n"
-    "{\n"
-    "   FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
-	"}\n\0";
 
 
 void framebuffer_size_callback(GLFWwindow * window, int width, int height) {
@@ -130,39 +146,17 @@ int main() {
 	// Initialize GLAD
 	assertSuccess(gladLoadGLLoader((GLADloadproc)glfwGetProcAddress), "Failed to initialize GLAD");
 
-	// Compile programs
-	unsigned int vertex_shader = rtCompile(&vertexShaderSource, GL_VERTEX_SHADER);
-	// Verify compilations
-	int success;
-	char infoLog[512];
-	glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &success);
-	glGetShaderInfoLog(vertex_shader, 512, NULL, infoLog);
-	assertSuccess(success, "Failed to compile vertex shader:\n" << infoLog);
-
-	unsigned int fragment_shader = rtCompile(&fragmentShaderSource, GL_FRAGMENT_SHADER);
-	glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &success);
-	glGetShaderInfoLog(fragment_shader, 512, NULL, infoLog);
-	assertSuccess(success, "Failed to compile fragment shader:\n" << infoLog);
+	shader_program.compileFromPath("vertex.glsl", "fragment.glsl");
+	shader_program2.compileFromPath("vertex.glsl", "fragment2.glsl");
 	
 
-	shader_program = glCreateProgram();
-	glAttachShader(shader_program, vertex_shader);
-	glAttachShader(shader_program, fragment_shader);
-	glLinkProgram(shader_program);
-
-	glGetProgramiv(shader_program, GL_LINK_STATUS, &success);
-	glGetProgramInfoLog(shader_program, 512, NULL, infoLog);
-	assertSuccess(success, "Failed to link shaders into program:\n" << infoLog);
-
-	glDeleteShader(vertex_shader);
-	glDeleteShader(fragment_shader);
-
-	
-
-	unsigned int VBO, EOB;
+	unsigned int VBO, VBO2, EOB, EOB2;
 	glGenVertexArrays(1, &VAO);
+	glGenVertexArrays(1, &VAO2);
 	glGenBuffers(1, &VBO);
+	glGenBuffers(1, &VBO2);
 	glGenBuffers(1, &EOB);
+	glGenBuffers(1, &EOB2);
 
 	glBindVertexArray(VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO); 
@@ -181,8 +175,26 @@ int main() {
 	);
 	glEnableVertexAttribArray(0); // there are up to 15 you could specify, maybe
 
+	glBindVertexArray(VAO2);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO2);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices2), vertices2, GL_STATIC_DRAW);
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EOB2);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices2), indices2, GL_STATIC_DRAW);
+
+	glVertexAttribPointer(	// When this is called, the bound buffer is also associated with VAO.
+		0,					// the attribute to setup. Attribute is what the vertex shader specifies as (location = 0)
+		3,					// count
+		GL_FLOAT,			// type
+		GL_FALSE,			// do normalize
+		3 * sizeof(float),	// The stride length
+		(void*)0			// entry point
+	);
+	glEnableVertexAttribArray(0); // there are up to 15 you could specify, maybe
+
 	glBindVertexArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, 0); 
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
 	while (!glfwWindowShouldClose(window)) {
